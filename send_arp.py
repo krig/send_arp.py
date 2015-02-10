@@ -21,12 +21,14 @@
 #
 
 from optparse import OptionParser
-import time, socket
-from struct import pack, unpack
-import signal
+import time
+import socket
+from struct import pack
+
 
 def commandline():
-    parser = OptionParser(usage="%prog [OPTIONS] device src_ip_addr src_hw_addr broadcast_ip_addr netmask")
+    parser = OptionParser(
+        usage="%prog [OPTIONS] device src_ip_addr src_hw_addr broadcast_ip_addr netmask")
     parser.add_option("-i", "--interval", dest="interval", default="1000",
                       help="Repeat interval in ms", metavar="INTERVAL")
     parser.add_option("-r", "--repeat", dest="repeat", default="1",
@@ -38,10 +40,11 @@ def commandline():
     (options, args) = parser.parse_args()
 
     if len(args) != 5:
-        parser.error("Expects: [-i repeatinterval-ms] [-r repeatcount] [-p pidfile] \\\n"+
+        parser.error("Expects: [-i repeatinterval-ms] [-r repeatcount] [-p pidfile] \\\n" +
                      "        device src_ip_addr src_hw_addr broadcast_ip_addr netmask")
 
-    class Args: pass
+    class Args(object):
+        pass
     ret = Args()
     ret.interval = int(options.interval)
     ret.repeat = int(options.repeat)
@@ -53,8 +56,10 @@ def commandline():
     ret.netmask = args[4]
     return ret
 
+
 def mssleep(ms):
     time.sleep(ms/1000.0)
+
 
 def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     #if_ipaddr = socket.gethostbyname(socket.gethostname())
@@ -63,7 +68,6 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
 
     bcast_mac = pack('!6B', *(0xFF,)*6)
     zero_mac = pack('!6B', *(0x00,)*6)
-
 
     socket_mac = sock.getsockname()[4]
     if sender_mac == 'auto':
@@ -84,7 +88,6 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
 
     sender_ip = pack('!4B', *[int(x) for x in ip.split('.')])
     target_ip = pack('!4B', *[int(x) for x in ip.split('.')])
-
 
     arpframe = [
         ### ETHERNET
@@ -115,6 +118,7 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
 
     return True
 
+
 def main():
     args = commandline()
 
@@ -135,5 +139,6 @@ def main():
         if j != args.repeat-1:
             mssleep(args.interval / 2)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
