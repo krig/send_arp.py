@@ -15,8 +15,6 @@ See http://pypi.python.org/pypi/arprequest
     send_arp.py [-i interval(ms)] [-r repeat] [-p pidfile] \
         device src_ip src_mac broadcast netmask
     
-* PID file is always ignored.
-
 * Netmask is always ignored.
     
 This code sends two ARP packets per interval to maximize

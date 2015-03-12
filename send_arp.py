@@ -23,6 +23,8 @@
 from optparse import OptionParser
 import time
 import socket
+import itertools
+import os
 from struct import pack
 
 
@@ -32,7 +34,8 @@ def commandline():
     parser.add_option("-i", "--interval", dest="interval", default="1000",
                       help="Repeat interval in ms", metavar="INTERVAL")
     parser.add_option("-r", "--repeat", dest="repeat", default="1",
-                      help="Repeat count", metavar="REPEAT")
+                      help="Repeat count, 0 or less leads to infinite repeat",
+                      metavar="REPEAT")
     parser.add_option("-p", "--pidfile", dest="pidfile",
                       default="/tmp/arp.pid",
                       help="PID file", metavar="PID")
@@ -118,17 +121,23 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
 
     return True
 
+def write_pid_file(file_path):
+    # http://stackoverflow.com/a/10979569/83741
+    handle = os.open(file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    with os.fdopen(handle, 'w') as f:
+        f.write(str(os.getpid()))
 
 def main():
     args = commandline()
+    write_pid_file(args.pidfile)
 
-    for j in range(args.repeat):
+    span = range(args.repeat) if args.repeat > 0 else itertools.count()
+    for j in span:
         if not send_arp(args.src_ip_addr, args.device,
                         args.src_hw_addr,
                         args.broadcast_ip_addr,
                         args.netmask, 'REQUEST'):
             break
-        mssleep(args.interval / 2)
 
         if not send_arp(args.src_ip_addr, args.device,
                         args.src_hw_addr,
@@ -137,8 +146,9 @@ def main():
             break
 
         if j != args.repeat-1:
-            mssleep(args.interval / 2)
+            mssleep(args.interval)
 
+    os.unlink(args.pidfile)
 
 if __name__ == "__main__":
     main()
