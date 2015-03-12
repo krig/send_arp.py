@@ -25,6 +25,8 @@ import time
 import socket
 import itertools
 import os
+import signal
+import sys
 from struct import pack
 
 
@@ -63,14 +65,20 @@ def commandline():
 def mssleep(ms):
     time.sleep(ms/1000.0)
 
+bcast_mac = pack('!6B', *(0xFF,)*6)
+zero_mac = pack('!6B', *(0x00,)*6)
+ARPOP_REQUEST = pack('!H', 0x0001)
+ARPOP_REPLY = pack('!H', 0x0002)
+# Ethernet protocol type (=ARP)
+ETHERNET_PROTOCOL_TYPE_ARP = pack('!H', 0x0806)
+# ARP logical protocol type (Ethernet/IP)
+ARP_PROTOCOL_TYPE_ETHERNET_IP = pack('!HHBB', 0x0001, 0x0800, 0x0006, 0x0004)
 
-def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
+def send_arp(ip, device, sender_mac, broadcast, netmask, arptype,
+             request_target_mac=zero_mac):
     #if_ipaddr = socket.gethostbyname(socket.gethostname())
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.SOCK_RAW)
     sock.bind((device, socket.SOCK_RAW))
-
-    bcast_mac = pack('!6B', *(0xFF,)*6)
-    zero_mac = pack('!6B', *(0x00,)*6)
 
     socket_mac = sock.getsockname()[4]
     if sender_mac == 'auto':
@@ -78,12 +86,10 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     else:
         raise Exception("Can't ARP this: " + sender_mac)
 
-    ARPOP_REQUEST = pack('!H', 0x0001)
-    ARPOP_REPLY = pack('!H', 0x0002)
     arpop = None
     target_mac = None
     if arptype == 'REQUEST':
-        target_mac = zero_mac
+        target_mac = request_target_mac
         arpop = ARPOP_REQUEST
     else:
         target_mac = sender_mac
@@ -93,17 +99,15 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     target_ip = pack('!4B', *[int(x) for x in ip.split('.')])
 
     arpframe = [
-        ### ETHERNET
+        # ## ETHERNET
         # destination MAC addr
         bcast_mac,
         # source MAC addr
         socket_mac,
-        # protocol type (=ARP)
-        pack('!H', 0x0806),
+        ETHERNET_PROTOCOL_TYPE_ARP,
 
-        ### ARP
-        # logical protocol type (Ethernet/IP)
-        pack('!HHBB', 0x0001, 0x0800, 0x0006, 0x0004),
+        # ## ARP
+        ARP_PROTOCOL_TYPE_ETHERNET_IP,
         # operation type
         arpop,
         # sender MAC addr
@@ -119,8 +123,6 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     # send the ARP
     sock.send(''.join(arpframe))
 
-    return True
-
 
 def write_pid_file(file_path):
     # http://stackoverflow.com/a/10979569/83741
@@ -129,28 +131,45 @@ def write_pid_file(file_path):
         f.write(str(os.getpid()))
 
 
+def setup_pid_file(file_path):
+    write_pid_file(file_path)
+
+    def signal_handler(signum=None, frame=None):
+        os.unlink(file_path)
+        sys.exit(0)
+
+    for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
+        signal.signal(sig, signal_handler)
+
 def main():
     args = commandline()
-    write_pid_file(args.pidfile)
-
+    setup_pid_file(args.pidfile)
     span = range(args.repeat) if args.repeat > 0 else itertools.count()
     for j in span:
-        if not send_arp(args.src_ip_addr, args.device,
-                        args.src_hw_addr,
-                        args.broadcast_ip_addr,
-                        args.netmask, 'REQUEST'):
-            break
 
-        if not send_arp(args.src_ip_addr, args.device,
-                        args.src_hw_addr,
-                        args.broadcast_ip_addr,
-                        args.netmask, 'REPLY'):
-            break
+        # Send the same packages as outlined here:
+        # http://support.citrix.com/article/ctx109980
 
-        if j != args.repeat-1:
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REQUEST',
+                 request_target_mac=bcast_mac)
+
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REQUEST',
+                 request_target_mac=zero_mac)
+
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REPLY')
+
+        if j != args.repeat - 1:
             mssleep(args.interval)
 
-    os.unlink(args.pidfile)
 
 if __name__ == "__main__":
     main()
