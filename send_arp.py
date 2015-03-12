@@ -147,7 +147,7 @@ def main():
     span = range(args.repeat) if args.repeat > 0 else itertools.count()
     for j in span:
 
-        # Send the same packages as outlined here:
+        # Send the same packets as outlined here:
         # http://support.citrix.com/article/ctx109980
 
         send_arp(args.src_ip_addr, args.device,
