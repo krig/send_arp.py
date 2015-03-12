@@ -121,11 +121,13 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
 
     return True
 
+
 def write_pid_file(file_path):
     # http://stackoverflow.com/a/10979569/83741
     handle = os.open(file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     with os.fdopen(handle, 'w') as f:
         f.write(str(os.getpid()))
+
 
 def main():
     args = commandline()
