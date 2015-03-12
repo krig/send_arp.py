@@ -138,6 +138,7 @@ def setup_pid_file(file_path):
         os.unlink(file_path)
         sys.exit(0)
 
+    # http://stackoverflow.com/a/11858588/83741
     for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
         signal.signal(sig, signal_handler)
 
