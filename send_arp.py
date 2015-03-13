@@ -26,6 +26,7 @@ import socket
 import itertools
 import os
 import signal
+import atexit
 import sys
 from struct import pack
 
@@ -73,6 +74,7 @@ ARPOP_REPLY = pack('!H', 0x0002)
 ETHERNET_PROTOCOL_TYPE_ARP = pack('!H', 0x0806)
 # ARP logical protocol type (Ethernet/IP)
 ARP_PROTOCOL_TYPE_ETHERNET_IP = pack('!HHBB', 0x0001, 0x0800, 0x0006, 0x0004)
+
 
 def send_arp(ip, device, sender_mac, broadcast, netmask, arptype,
              request_target_mac=zero_mac):
@@ -131,16 +133,23 @@ def write_pid_file(file_path):
         f.write(str(os.getpid()))
 
 
+def remove_pid_file(file_path):
+    os.unlink(file_path)
+
+
 def setup_pid_file(file_path):
     write_pid_file(file_path)
 
     def signal_handler(signum=None, frame=None):
-        os.unlink(file_path)
+        remove_pid_file(file_path)
         sys.exit(0)
 
     # http://stackoverflow.com/a/11858588/83741
     for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
         signal.signal(sig, signal_handler)
+
+    atexit.register(lambda: remove_pid_file(file_path))
+
 
 def main():
     args = commandline()
