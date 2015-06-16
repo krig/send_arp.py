@@ -15,12 +15,12 @@ See http://pypi.python.org/pypi/arprequest
     send_arp.py [-i interval(ms)] [-r repeat] [-p pidfile] \
         device src_ip src_mac broadcast netmask
     
-* PID file is always ignored.
-
 * Netmask is always ignored.
     
-This code sends two ARP packets per interval to maximize
-likelihood of not being filtered.
+This code sends three styles of GARP packets per interval to maximize
+the likelihood of being understood: one GARP request with bcast THA, 
+one GARP request with zero THA, and one standard GARP reply. These
+different variants are further discussed at [the Wireshark wiki](https://wiki.wireshark.org/Gratuitous_ARP).
 
 # License
 

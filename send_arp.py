@@ -23,6 +23,11 @@
 from optparse import OptionParser
 import time
 import socket
+import itertools
+import os
+import signal
+import atexit
+import sys
 from struct import pack
 
 
@@ -32,7 +37,8 @@ def commandline():
     parser.add_option("-i", "--interval", dest="interval", default="1000",
                       help="Repeat interval in ms", metavar="INTERVAL")
     parser.add_option("-r", "--repeat", dest="repeat", default="1",
-                      help="Repeat count", metavar="REPEAT")
+                      help="Repeat count, 0 or less leads to infinite repeat",
+                      metavar="REPEAT")
     parser.add_option("-p", "--pidfile", dest="pidfile",
                       default="/tmp/arp.pid",
                       help="PID file", metavar="PID")
@@ -60,14 +66,21 @@ def commandline():
 def mssleep(ms):
     time.sleep(ms/1000.0)
 
+bcast_mac = pack('!6B', *(0xFF,)*6)
+zero_mac = pack('!6B', *(0x00,)*6)
+ARPOP_REQUEST = pack('!H', 0x0001)
+ARPOP_REPLY = pack('!H', 0x0002)
+# Ethernet protocol type (=ARP)
+ETHERNET_PROTOCOL_TYPE_ARP = pack('!H', 0x0806)
+# ARP logical protocol type (Ethernet/IP)
+ARP_PROTOCOL_TYPE_ETHERNET_IP = pack('!HHBB', 0x0001, 0x0800, 0x0006, 0x0004)
 
-def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
+
+def send_arp(ip, device, sender_mac, broadcast, netmask, arptype,
+             request_target_mac=zero_mac):
     #if_ipaddr = socket.gethostbyname(socket.gethostname())
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.SOCK_RAW)
     sock.bind((device, socket.SOCK_RAW))
-
-    bcast_mac = pack('!6B', *(0xFF,)*6)
-    zero_mac = pack('!6B', *(0x00,)*6)
 
     socket_mac = sock.getsockname()[4]
     if sender_mac == 'auto':
@@ -75,12 +88,10 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     else:
         raise Exception("Can't ARP this: " + sender_mac)
 
-    ARPOP_REQUEST = pack('!H', 0x0001)
-    ARPOP_REPLY = pack('!H', 0x0002)
     arpop = None
     target_mac = None
     if arptype == 'REQUEST':
-        target_mac = zero_mac
+        target_mac = request_target_mac
         arpop = ARPOP_REQUEST
     else:
         target_mac = sender_mac
@@ -90,17 +101,15 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     target_ip = pack('!4B', *[int(x) for x in ip.split('.')])
 
     arpframe = [
-        ### ETHERNET
+        # ## ETHERNET
         # destination MAC addr
         bcast_mac,
         # source MAC addr
         socket_mac,
-        # protocol type (=ARP)
-        pack('!H', 0x0806),
+        ETHERNET_PROTOCOL_TYPE_ARP,
 
-        ### ARP
-        # logical protocol type (Ethernet/IP)
-        pack('!HHBB', 0x0001, 0x0800, 0x0006, 0x0004),
+        # ## ARP
+        ARP_PROTOCOL_TYPE_ETHERNET_IP,
         # operation type
         arpop,
         # sender MAC addr
@@ -116,28 +125,60 @@ def send_arp(ip, device, sender_mac, broadcast, netmask, arptype):
     # send the ARP
     sock.send(''.join(arpframe))
 
-    return True
+
+def write_pid_file(file_path):
+    # http://stackoverflow.com/a/10979569/83741
+    handle = os.open(file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    with os.fdopen(handle, 'w') as f:
+        f.write(str(os.getpid()))
+
+
+def remove_pid_file(file_path):
+    os.unlink(file_path)
+
+
+def setup_pid_file(file_path):
+    write_pid_file(file_path)
+
+    def signal_handler(signum=None, frame=None):
+        remove_pid_file(file_path)
+        sys.exit(0)
+
+    # http://stackoverflow.com/a/11858588/83741
+    for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
+        signal.signal(sig, signal_handler)
+
+    atexit.register(lambda: remove_pid_file(file_path))
 
 
 def main():
     args = commandline()
+    setup_pid_file(args.pidfile)
+    span = range(args.repeat) if args.repeat > 0 else itertools.count()
+    for j in span:
 
-    for j in range(args.repeat):
-        if not send_arp(args.src_ip_addr, args.device,
-                        args.src_hw_addr,
-                        args.broadcast_ip_addr,
-                        args.netmask, 'REQUEST'):
-            break
-        mssleep(args.interval / 2)
+        # Send the same packets as outlined here:
+        # http://support.citrix.com/article/ctx109980
 
-        if not send_arp(args.src_ip_addr, args.device,
-                        args.src_hw_addr,
-                        args.broadcast_ip_addr,
-                        args.netmask, 'REPLY'):
-            break
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REQUEST',
+                 request_target_mac=bcast_mac)
 
-        if j != args.repeat-1:
-            mssleep(args.interval / 2)
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REQUEST',
+                 request_target_mac=zero_mac)
+
+        send_arp(args.src_ip_addr, args.device,
+                 args.src_hw_addr,
+                 args.broadcast_ip_addr,
+                 args.netmask, 'REPLY')
+
+        if j != args.repeat - 1:
+            mssleep(args.interval)
 
 
 if __name__ == "__main__":
