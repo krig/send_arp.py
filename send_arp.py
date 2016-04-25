@@ -145,7 +145,14 @@ def setup_pid_file(file_path):
         sys.exit(0)
 
     # http://stackoverflow.com/a/11858588/83741
-    for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
+    # Only a limited set of signals are available on Windows (see #2)
+    # Also see https://docs.python.org/2/library/signal.html#signal.signal
+    import platform
+    if platform.system() == 'Windows':
+        signal_list = [signal.SIGTERM]
+    else:
+        signal_list = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]
+    for sig in signal_list:
         signal.signal(sig, signal_handler)
 
     atexit.register(lambda: remove_pid_file(file_path))
